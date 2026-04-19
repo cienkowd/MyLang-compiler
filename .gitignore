@@ -1,0 +1,29 @@
+# ── Skompilowane klasy Java ───────────────────────────────────────────────────
+build/
+
+# ── Pliki generowane przez ANTLR4 ────────────────────────────────────────────
+# Regenerowane automatycznie przez `make` (lub `make gen`)
+# Nie commituję, by uniknąć konfliktów i zbędnych diff-ów
+src/gen/
+
+# ── ANTLR4 runtime jar ───────────────────────────────────────────────────────
+# Plik binarny (~2 MB); pobierz ręcznie:
+#   wget https://www.antlr.org/download/antlr-4.13.1-complete.jar
+antlr-4.13.1-complete.jar
+
+# ── Wygenerowane pliki LLVM IR ───────────────────────────────────────────────
+*.ll
+
+# ── Skompilowane binaria (clang) ─────────────────────────────────────────────
+*.out
+out_bin
+
+# ── Edytory i systemy operacyjne ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+*.iml
+.vscode/

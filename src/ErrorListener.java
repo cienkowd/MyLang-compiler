@@ -22,8 +22,8 @@ public class ErrorListener extends BaseErrorListener {
         if (offendingSymbol instanceof Token) {
             Token token = (Token) offendingSymbol;
             description = token.getType() == Token.EOF
-                ? "nieoczekiwany koniec pliku"
-                : "nieoczekiwany token '" + token.getText() + "'";
+                    ? "nieoczekiwany koniec pliku"
+                    : "nieoczekiwany token '" + token.getText() + "'";
         } else {
             description = "nierozpoznany znak";
         }

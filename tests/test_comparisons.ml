@@ -1,11 +1,3 @@
-// Test 5: porównania (zwracają bool) + short-circuit w wyrażeniu złożonym
-// Oczekiwane wyjście:
-//   1   (5 > 3)
-//   0   (5 == 3)
-//   1   (5 >= 5)
-//   1   (x > 0 AND y > 0 – oba spełnione)
-//   0   (x < 0 OR y < 0 – żadne nie spełnione)
-
 int x = 5
 int y = 3
 

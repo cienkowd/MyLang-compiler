@@ -1,9 +1,3 @@
-// Test 1: podstawowe operacje na int i real
-// Oczekiwane wyjście:
-//   11
-//   3.140000
-//   2
-
 int x = 5
 int y = 3
 int z = x + y * 2

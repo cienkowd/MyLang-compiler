@@ -1,9 +1,9 @@
-# Kompilator MyLang — Etap 1
+# Kompilator MyLang — Etap 1 + 2
 
 Kompilator prostego języka MyLang generujący kod LLVM IR.  
 Zbudowany w Javie przy użyciu ANTLR4 jako generatora lexera/parsera.
 
-> Szczegółowy opis działania kompilatora: [`ARCHITEKTURA.md`](ARCHITEKTURA.md)
+> Szczegółowy opis działania kompilatora: [`KOMPENDIUM.md`](KOMPENDIUM.md)
 
 ---
 
@@ -32,7 +32,7 @@ make
 ### 4. Uruchom przykładowy program
 
 ```bash
-make run FILE=tests/test_basic.ml
+make run FILE=tests/test_showcase.ml
 ```
 
 ### 5. Uruchom wszystkie testy
@@ -119,7 +119,7 @@ float64 d = (float64) f     // float → double (poszerzenie, bezstratne)
 bool b  = (bool) x          // int → bool (0=false, inne=true)
 ```
 
-### Tablice o stałym rozmiarze
+### Tablice 1D o stałym rozmiarze
 
 ```
 // Tablica 0-based (indeksy 0..N-1)
@@ -147,6 +147,157 @@ real[3] fvals
 fvals[0] = 1.5
 ```
 
+### Tablice 2D (macierze)
+
+```
+// Deklaracja macierzy R×C
+int[3][4] mat
+
+// Wypełnienie pętlą
+for i = 0 to 3 {
+    for j = 0 to 4 {
+        mat[i][j] = i * 4 + j
+    }
+}
+
+// Dostęp do elementu
+int val = mat[1][2]
+
+// Wypisanie całej macierzy (wszystkie elementy wiersz po wierszu)
+print mat
+```
+
+### Instrukcja warunkowa
+
+```
+if (x > 0) {
+    print x
+} else if (x == 0) {
+    print 0
+} else {
+    print -1
+}
+```
+
+Bloki `else if` i `else` są opcjonalne. Można zagnieżdżać dowolnie głęboko.
+
+### Pętla while
+
+```
+int i = 0
+while (i < 10) {
+    print i
+    i = i + 1
+}
+```
+
+### Pętla for
+
+```
+// Iteracja od start do end-1 (zakres prawostronnie otwarty)
+for k = 1 to 11 {
+    print k       // wypisuje 1..10
+}
+
+// Można używać wyrażeń jako granic
+for idx = 0 to 5 {
+    tab[idx] = idx * idx
+}
+```
+
+### Funkcje
+
+```
+// Funkcja zwracająca wartość
+fun int max(int x, int y) {
+    if (x > y) {
+        return x
+    }
+    return y
+}
+
+// Funkcja rekurencyjna
+fun int fib(int n) {
+    if (n <= 1) {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+// Funkcja z typem zmiennoprzecinkowym
+fun real srednia(real x, real y, real z) {
+    return (x + y + z) / 3.0
+}
+
+// Procedura (bez wartości zwracanej)
+fun void printSep() {
+    print 0
+}
+
+// Wywołanie
+print max(7, 12)
+print fib(8)
+print srednia(3.0, 6.0, 9.0)
+printSep()
+```
+
+### Struktury
+
+```
+struct Vec2 {
+    real x
+    real y
+}
+
+Vec2 v
+v.x = 3.0
+v.y = 4.0
+real len_sq = v.x * v.x + v.y * v.y
+print len_sq
+```
+
+### Klasy (struktury z metodami)
+
+```
+class Stack {
+    int val0
+    int val1
+    int val2
+    int top
+
+    fun void init() {
+        top = 0
+    }
+
+    fun void push(int v) {
+        if (top == 0) { val0 = v }
+        if (top == 1) { val1 = v }
+        if (top == 2) { val2 = v }
+        top = top + 1
+    }
+
+    fun int peek() {
+        if (top == 3) { return val2 }
+        if (top == 2) { return val1 }
+        return val0
+    }
+
+    fun int size() {
+        return top
+    }
+}
+
+Stack stk
+stk.init()
+stk.push(10)
+stk.push(20)
+stk.push(30)
+print stk.size()   // 3
+print stk.peek()   // 30
+```
+
+Wewnątrz metod pola klasy są dostępne bezpośrednio (bez `self.`).
+
 ### Komentarze
 
 ```
@@ -157,7 +308,9 @@ fvals[0] = 1.5
 
 ## Obsługiwane wymagania
 
-### Wymagania minimalne (10 pkt)
+### Etap 1
+
+#### Wymagania minimalne (10 pkt)
 
 - Typy `int` i `real`
 - I/O: `read` i `print`
@@ -165,7 +318,7 @@ fvals[0] = 1.5
 - Obsługa błędów leksykalno-składniowych (ANTLR + własny listener)
 - Obsługa błędów semantycznych (niezadeklarowane zmienne, niezgodność typów)
 
-### Rozszerzenia
+#### Rozszerzenia Etap 1
 
 - **Short-circuit boolean evaluation (5 pkt)** — AND/OR przez warunkowe skoki + phi
 - **Liczby o różnej precyzji: `float32`, `float64` (3 pkt)** — osobne typy LLVM
@@ -178,7 +331,21 @@ fvals[0] = 1.5
   - `read arr[i]` — wczytanie elementu ze stdin
 - **Operatory porównania** — `==`, `!=`, `<`, `>`, `<=`, `>=` zwracające `bool`
 
-**Łącznie: do 25 pkt**
+### Etap 2
+
+#### Wymagania minimalne Etap 2
+
+- **Instrukcja `if/else if/else`** — wielogałęziowe, zagnieżdżalne
+- **Pętla `while`** — z dowolnym warunkiem boolowskim
+- **Pętla `for`** — od wyrażenia do wyrażenia (zakres `[start, end)`)
+- **Funkcje** — parametry, wartości zwracane, rekurencja, lokalne zmienne
+- **Zakres zmiennych** — lokalne vs globalne; funkcje mają własny zakres
+
+#### Rozszerzenia Etap 2
+
+- **Struktury `struct` (+5 pkt)** — rekordy danych z polami, dostęp przez `.`
+- **Klasy `class` (+2 pkt)** — struktury z metodami, implicitny dostęp do pól
+- **Macierze 2D (+2 pkt)** — `int[R][C] mat`, dwupoziomowy GEP, `print mat`
 
 ---
 
@@ -186,8 +353,22 @@ fvals[0] = 1.5
 
 ```bash
 make                        # zbuduj kompilator (gen + kompilacja Java)
-make run FILE=tests/test_basic.ml  # kompiluj i uruchom program
+make run FILE=tests/test_showcase.ml  # kompiluj i uruchom program
 make test                   # uruchom wszystkie pliki z tests/
 make ir FILE=plik.ml        # tylko wypisz wygenerowany IR (bez uruchamiania)
 make clean                  # usuń pliki budowania
 ```
+
+## Pliki testowe
+
+| Plik | Co testuje |
+|------|-----------|
+| `tests/test_basic.ml` | Typy podstawowe, arytmetyka, I/O |
+| `tests/test_if.ml` | Instrukcja if/else if/else |
+| `tests/test_while.ml` | Pętla while |
+| `tests/test_for.ml` | Pętla for |
+| `tests/test_functions.ml` | Funkcje, rekurencja, void |
+| `tests/test_struct.ml` | Struktury i dostęp do pól |
+| `tests/test_class.ml` | Klasy i metody |
+| `tests/test_matrix.ml` | Macierze 2D |
+| `tests/test_showcase.ml` | Wszystkie funkcjonalności języka |

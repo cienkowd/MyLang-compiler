@@ -1,12 +1,25 @@
+import java.util.ArrayList;
+import java.util.List;
+
 public class LLVMGenerator {
 
     static String header_text = "";
     static String main_text = "";
+    static String funcs_text = "";
+    static String structs_text = "";
+
     static int reg = 1;
     static int labelCount = 0;
     static int readBufCount = 0;
     static int strLitCount = 0;
     static String currentBlock = "entry";
+    static boolean blockTerminated = false;
+
+    static int savedReg = 1;
+    static String savedBlock = "entry";
+    static boolean savedTerminated = false;
+    static String savedMainText = null;
+    static boolean inUserFunc = false;
 
     static String nextReg() {
         return "%" + reg++;
@@ -14,6 +27,159 @@ public class LLVMGenerator {
 
     static String newLabel(String prefix) {
         return prefix + "_" + (labelCount++);
+    }
+
+    static void beginFunction(String llvmName, VarType retType,
+                              List<String> paramNames, List<VarType> paramTypes) {
+        savedReg = reg;
+        savedBlock = currentBlock;
+        savedTerminated = blockTerminated;
+        savedMainText = main_text;
+        reg = 1;
+        currentBlock = "entry";
+        blockTerminated = false;
+        main_text = "";
+        inUserFunc = true;
+
+        StringBuilder sig = new StringBuilder();
+        sig.append("define ");
+        sig.append(retType == null ? "void" : retType.llvm());
+        sig.append(" @").append(llvmName).append("(");
+        for (int i = 0; i < paramNames.size(); i++) {
+            if (i > 0) sig.append(", ");
+            sig.append(paramTypes.get(i).llvm()).append(" %_").append(paramNames.get(i));
+        }
+        sig.append(") nounwind {\nentry:\n");
+        funcs_text += sig.toString();
+
+        for (int i = 0; i < paramNames.size(); i++) {
+            String pn = paramNames.get(i);
+            String pt = paramTypes.get(i).llvm();
+            main_text += "  %" + pn + " = alloca " + pt + "\n";
+            main_text += "  store " + pt + " %_" + pn + ", " + pt + "* %" + pn + "\n";
+        }
+    }
+
+    static void beginStructMethod(String llvmName, String className, VarType retType,
+                                  List<String> paramNames, List<VarType> paramTypes) {
+        savedReg = reg;
+        savedBlock = currentBlock;
+        savedTerminated = blockTerminated;
+        savedMainText = main_text;
+        reg = 1;
+        currentBlock = "entry";
+        blockTerminated = false;
+        main_text = "";
+        inUserFunc = true;
+
+        StringBuilder sig = new StringBuilder();
+        sig.append("define ");
+        sig.append(retType == null ? "void" : retType.llvm());
+        sig.append(" @").append(llvmName).append("(");
+        sig.append("%").append(className).append("* %self");
+        for (int i = 0; i < paramNames.size(); i++) {
+            sig.append(", ").append(paramTypes.get(i).llvm()).append(" %_").append(paramNames.get(i));
+        }
+        sig.append(") nounwind {\nentry:\n");
+        funcs_text += sig.toString();
+
+        for (int i = 0; i < paramNames.size(); i++) {
+            String pn = paramNames.get(i);
+            String pt = paramTypes.get(i).llvm();
+            main_text += "  %" + pn + " = alloca " + pt + "\n";
+            main_text += "  store " + pt + " %_" + pn + ", " + pt + "* %" + pn + "\n";
+        }
+    }
+
+    static void endFunction(VarType retType) {
+        if (!blockTerminated) {
+            if (retType == null || retType == VarType.VOID) {
+                main_text += "  ret void\n";
+            }
+        }
+        funcs_text += main_text + "}\n\n";
+        reg = savedReg;
+        currentBlock = savedBlock;
+        blockTerminated = savedTerminated;
+        main_text = savedMainText;
+        inUserFunc = false;
+    }
+
+    static void emitReturn(String val, VarType t) {
+        if (val == null || t == null || t == VarType.VOID) {
+            main_text += "  ret void\n";
+        } else {
+            main_text += "  ret " + t.llvm() + " " + val + "\n";
+        }
+        blockTerminated = true;
+    }
+
+    static String callFunction(String llvmName, VarType retType,
+                               List<String> argRegs, List<VarType> argTypes) {
+        StringBuilder call = new StringBuilder();
+        String r = nextReg();
+        if (retType == null || retType == VarType.VOID) {
+            call.append("  call void @").append(llvmName).append("(");
+        } else {
+            call.append("  ").append(r).append(" = call ").append(retType.llvm())
+                .append(" @").append(llvmName).append("(");
+        }
+        for (int i = 0; i < argRegs.size(); i++) {
+            if (i > 0) call.append(", ");
+            call.append(argTypes.get(i).llvm()).append(" ").append(argRegs.get(i));
+        }
+        call.append(")\n");
+        main_text += call.toString();
+        return (retType == null || retType == VarType.VOID) ? null : r;
+    }
+
+    static String callMethod(String llvmName, String className, VarType retType,
+                             String selfPtr,
+                             List<String> argRegs, List<VarType> argTypes) {
+        StringBuilder call = new StringBuilder();
+        String r = nextReg();
+        if (retType == null || retType == VarType.VOID) {
+            call.append("  call void @").append(llvmName).append("(");
+        } else {
+            call.append("  ").append(r).append(" = call ").append(retType.llvm())
+                .append(" @").append(llvmName).append("(");
+        }
+        call.append("%").append(className).append("* ").append(selfPtr);
+        for (int i = 0; i < argRegs.size(); i++) {
+            call.append(", ").append(argTypes.get(i).llvm()).append(" ").append(argRegs.get(i));
+        }
+        call.append(")\n");
+        main_text += call.toString();
+        return (retType == null || retType == VarType.VOID) ? null : r;
+    }
+
+    static void declareStructType(String name, List<String> fieldNames, List<VarType> fieldTypes) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("%").append(name).append(" = type { ");
+        for (int i = 0; i < fieldTypes.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(fieldTypes.get(i).llvm());
+        }
+        sb.append(" }\n");
+        structs_text += sb.toString();
+    }
+
+    static void allocaStruct(String id, String typeName) {
+        main_text += "  %" + id + " = alloca %" + typeName + "\n";
+    }
+
+    static String structFieldPtr(String id, String typeName, int fieldIdx, VarType fieldType) {
+        String r = nextReg();
+        main_text += "  " + r + " = getelementptr inbounds %" + typeName + ", %" + typeName
+                + "* %" + id + ", i32 0, i32 " + fieldIdx + "\n";
+        return r;
+    }
+
+    static String structFieldPtrFromPtr(String ptr, String typeName, int fieldIdx) {
+        String r = nextReg();
+        main_text += "  " + r + " = getelementptr inbounds %" + typeName + ", %" + typeName
+                + "* " + ptr + ", i32 0, i32 " + fieldIdx + "\n";
+        return r;
     }
 
     static void declare(String id, VarType t) {
@@ -135,15 +301,20 @@ public class LLVMGenerator {
 
     static void condBr(String cond, String trueLabel, String falseLabel) {
         main_text += "  br i1 " + cond + ", label %" + trueLabel + ", label %" + falseLabel + "\n";
+        blockTerminated = true;
     }
 
     static void br(String label) {
-        main_text += "  br label %" + label + "\n";
+        if (!blockTerminated) {
+            main_text += "  br label %" + label + "\n";
+        }
+        blockTerminated = true;
     }
 
     static void emitLabel(String label) {
         main_text += label + ":\n";
         currentBlock = label;
+        blockTerminated = false;
     }
 
     static String phi_i1(String v1, String l1, String v2, String l2) {
@@ -352,6 +523,51 @@ public class LLVMGenerator {
         }
     }
 
+    static void declareMatrix(String id, VarType elemType, int rows, int cols) {
+        String T = elemType.llvm();
+        main_text += "  %" + id + " = alloca [" + rows + " x [" + cols + " x " + T + "]]\n";
+    }
+
+    static String matrixGEP(String id, String rowReg, String colReg,
+                             VarType elemType, int rows, int cols) {
+        String T = elemType.llvm();
+        String rowType = "[" + cols + " x " + T + "]";
+        String matType = "[" + rows + " x " + rowType + "]";
+        String rowPtr = nextReg();
+        main_text += "  " + rowPtr + " = getelementptr inbounds " + matType + ", "
+                + matType + "* %" + id + ", i32 0, i32 " + rowReg + "\n";
+        String elemPtr = nextReg();
+        main_text += "  " + elemPtr + " = getelementptr inbounds " + rowType + ", "
+                + rowType + "* " + rowPtr + ", i32 0, i32 " + colReg + "\n";
+        return elemPtr;
+    }
+
+    static void printMatrixAll(String id, VarType elemType, int rows, int cols) {
+        String T = elemType.llvm();
+        String rowType = "[" + cols + " x " + T + "]";
+        String matType = "[" + rows + " x " + rowType + "]";
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                String rowPtr = nextReg();
+                main_text += "  " + rowPtr + " = getelementptr inbounds " + matType + ", "
+                        + matType + "* %" + id + ", i32 0, i32 " + i + "\n";
+                String elemPtr = nextReg();
+                main_text += "  " + elemPtr + " = getelementptr inbounds " + rowType + ", "
+                        + rowType + "* " + rowPtr + ", i32 0, i32 " + j + "\n";
+                String val = nextReg();
+                main_text += "  " + val + " = load " + T + ", " + T + "* " + elemPtr + "\n";
+                switch (elemType) {
+                    case INT:    printf_i32(val);    break;
+                    case REAL:
+                    case FLOAT64: printf_double(val); break;
+                    case FLOAT32: printf_float(val);  break;
+                    case BOOL:   printf_bool(val);   break;
+                    default: break;
+                }
+            }
+        }
+    }
+
     static String stringLiteralPtr(String content) {
         int id = ++strLitCount;
         String gname = "@strlit_" + id;
@@ -378,11 +594,19 @@ public class LLVMGenerator {
         sb.append("@fmt_str_p = constant [4 x i8] c\"%s\\0A\\00\"\n");
         sb.append("@fmt_str_r = constant [6 x i8] c\"%255s\\00\"\n");
         sb.append("\n");
+        if (!structs_text.isEmpty()) {
+            sb.append(structs_text);
+            sb.append("\n");
+        }
         if (!header_text.isEmpty()) {
             sb.append(header_text);
             sb.append("\n");
         }
+        if (!funcs_text.isEmpty()) {
+            sb.append(funcs_text);
+        }
         sb.append("define i32 @main() nounwind {\n");
+        sb.append("entry:\n");
         sb.append(main_text);
         sb.append("  ret i32 0\n");
         sb.append("}\n");

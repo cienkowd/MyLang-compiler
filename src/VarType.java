@@ -1,5 +1,5 @@
 public enum VarType {
-    INT, REAL, FLOAT32, FLOAT64, BOOL, STRING, UNKNOWN;
+    INT, REAL, FLOAT32, FLOAT64, BOOL, STRING, STRUCT, VOID, UNKNOWN;
 
     public String llvm() {
         switch (this) {
@@ -14,6 +14,8 @@ public enum VarType {
                 return "i1";
             case STRING:
                 return "i8*";
+            case VOID:
+                return "void";
             default:
                 return "void";
         }
@@ -42,6 +44,10 @@ public enum VarType {
                 return "bool";
             case STRING:
                 return "string";
+            case STRUCT:
+                return "struct";
+            case VOID:
+                return "void";
             default:
                 return "unknown";
         }

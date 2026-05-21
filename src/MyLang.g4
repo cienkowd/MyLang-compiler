@@ -1,19 +1,82 @@
 grammar MyLang;
 
 prog
-    : (stat? NEWLINE)* EOF
+    : topLevel* EOF
+    ;
+
+topLevel
+    : funcDecl
+    | structDecl
+    | classDecl
+    | stat
+    ;
+
+funcDecl
+    : 'fun' returnTypeName ID '(' paramList? ')' block   #funcDeclRule
+    ;
+
+returnTypeName
+    : typeName   #retTypeNamed
+    | 'void'     #retTypeVoid
+    ;
+
+paramList
+    : param (',' param)*
+    ;
+
+param
+    : typeName ID
+    ;
+
+structDecl
+    : 'struct' ID '{' fieldDecl* '}'   #structDeclRule
+    ;
+
+classDecl
+    : 'class' ID '{' classMember* '}'   #classDeclRule
+    ;
+
+classMember
+    : fieldDecl      #classMemberField
+    | methodDecl     #classMemberMethod
+    ;
+
+fieldDecl
+    : typeName ID
+    ;
+
+methodDecl
+    : 'fun' returnTypeName ID '(' paramList? ')' block
+    ;
+
+block
+    : '{' stat* '}'
     ;
 
 stat
-    : typeName '[' INT DOTDOT INT ']' ID  #rangedArrayDecl
-    | typeName '[' INT ']' ID             #arrayDecl
-    | typeName ID ('=' expr)?             #varDecl
-    | ID '[' expr ']' '=' expr            #arrayAssign
-    | ID '=' expr                         #assign
-    | 'read' ID '[' expr ']'              #readArrayStat
-    | 'read' ID                           #readStat
-    | 'print' ID                          #printIdStat
-    | 'print' expr                        #printStat
+    : typeName '[' INT ']' '[' INT ']' ID              #matrixDecl
+    | typeName '[' INT DOTDOT INT ']' ID               #rangedArrayDecl
+    | typeName '[' INT ']' ID                          #arrayDecl
+    | typeName ID ('=' expr)?                          #varDecl
+    | ID '[' expr ']' '[' expr ']' '=' expr            #matrixAssign
+    | ID '[' expr ']' '=' expr                         #arrayAssign
+    | ID '.' ID '=' expr                               #fieldAssign
+    | ID '=' expr                                      #assign
+    | 'read' ID '[' expr ']' '[' expr ']'              #readMatrixStat
+    | 'read' ID '[' expr ']'                           #readArrayStat
+    | 'read' ID                                        #readStat
+    | 'print' ID                                       #printIdStat
+    | 'print' expr                                     #printStat
+    | 'if' '(' expr ')' block ('else' 'if' '(' expr ')' block)* ('else' block)?   #ifStat
+    | 'while' '(' expr ')' block           #whileStat
+    | 'for' ID '=' expr 'to' expr block    #forStat
+    | 'return' expr?                       #returnStat
+    | ID '(' argList? ')'                  #funcCallStat
+    | ID '.' ID '(' argList? ')'           #methodCallStat
+    ;
+
+argList
+    : expr (',' expr)*
     ;
 
 typeName
@@ -23,6 +86,7 @@ typeName
     | 'float64' #typeFloat64
     | 'bool'    #typeBool
     | 'string'  #typeString
+    | ID        #typeStruct
     ;
 
 expr: orExpr;
@@ -80,15 +144,30 @@ unaryExpr
     ;
 
 primaryExpr
-    : INT              #intLit
-    | REAL             #realLit
-    | 'true'           #trueLit
-    | 'false'          #falseLit
-    | STRING_LIT       #stringLit
-    | ID '[' expr ']'  #arrayRef
-    | ID               #idRef
-    | '(' expr ')'     #parenExpr
+    : INT                               #intLit
+    | REAL                              #realLit
+    | 'true'                            #trueLit
+    | 'false'                           #falseLit
+    | STRING_LIT                        #stringLit
+    | ID '[' expr ']' '[' expr ']'      #matrixRef
+    | ID '[' expr ']'                   #arrayRef
+    | ID '(' argList? ')'               #funcCallExpr
+    | ID '.' ID '(' argList? ')'        #methodCallExpr
+    | ID '.' ID                         #fieldRef
+    | ID                                #idRef
+    | '(' expr ')'                      #parenExpr
     ;
+
+TO:     'to';
+FUN:    'fun';
+STRUCT: 'struct';
+CLASS:  'class';
+VOID:   'void';
+RETURN: 'return';
+IF:     'if';
+ELSE:   'else';
+WHILE:  'while';
+FOR:    'for';
 
 EQ: '==';
 NEQ: '!=';
@@ -116,11 +195,11 @@ ID
     ;
 
 NEWLINE
-    : '\r'? '\n'
+    : '\r'? '\n' -> skip
     ;
 
 WS
-    : [ \t]+     -> skip
+    : [ \t]+ -> skip
     ;
 
 LINE_COMMENT

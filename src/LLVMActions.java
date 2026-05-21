@@ -1,13 +1,32 @@
 import org.antlr.v4.runtime.ParserRuleContext;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class LLVMActions extends MyLangBaseVisitor<Value> {
 
-    private final Map<String, VarType> variables = new HashMap<>();
-    private final Map<String, ArrayInfo> arrays = new HashMap<>();
+    private Map<String, VarType> variables = new HashMap<>();
+    private Map<String, String> llvmVarName = new HashMap<>();
+    private Map<String, ArrayInfo> arrays = new HashMap<>();
+    private Map<String, MatrixInfo> matrices = new HashMap<>();
+    private Map<String, String> structVars = new HashMap<>();
+
+    private Map<String, VarType> savedVariables;
+    private Map<String, String> savedLlvmVarName;
+    private Map<String, ArrayInfo> savedArrays;
+    private Map<String, MatrixInfo> savedMatrices;
+    private Map<String, String> savedStructVars;
+
+    private final Map<String, FuncInfo> functions = new HashMap<>();
+    private final Map<String, StructInfo> structs = new HashMap<>();
+
+    private FuncInfo currentFunc = null;
+    private String currentClassName = null;
+
     private int errors = 0;
+    private int varCounter = 0;
 
     @Override
     public Value visitProg(MyLangParser.ProgContext ctx) {
@@ -17,15 +36,474 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
     }
 
     @Override
+    public Value visitFuncDeclRule(MyLangParser.FuncDeclRuleContext ctx) {
+        String name = ctx.ID().getText();
+        VarType retType = resolveReturnType(ctx.returnTypeName());
+        List<String> paramNames = new ArrayList<>();
+        List<VarType> paramTypes = new ArrayList<>();
+
+        if (ctx.paramList() != null) {
+            for (MyLangParser.ParamContext p : ctx.paramList().param()) {
+                paramNames.add(p.ID().getText());
+                paramTypes.add(resolveTypeName(p.typeName()));
+            }
+        }
+
+        FuncInfo info = new FuncInfo(name, retType, paramNames, paramTypes);
+        functions.put(name, info);
+
+        savedVariables = variables;
+        savedLlvmVarName = llvmVarName;
+        savedArrays = arrays;
+        savedMatrices = matrices;
+        savedStructVars = structVars;
+        variables = new HashMap<>();
+        llvmVarName = new HashMap<>();
+        arrays = new HashMap<>();
+        matrices = new HashMap<>();
+        structVars = new HashMap<>();
+        currentFunc = info;
+
+        for (int i = 0; i < paramNames.size(); i++) {
+            String pn = paramNames.get(i);
+            variables.put(pn, paramTypes.get(i));
+            llvmVarName.put(pn, "%" + pn);
+        }
+
+        LLVMGenerator.beginFunction(name, retType, paramNames, paramTypes);
+        visit(ctx.block());
+        LLVMGenerator.endFunction(retType);
+
+        currentFunc = null;
+        variables = savedVariables;
+        llvmVarName = savedLlvmVarName;
+        arrays = savedArrays;
+        matrices = savedMatrices;
+        structVars = savedStructVars;
+        return null;
+    }
+
+    @Override
+    public Value visitStructDeclRule(MyLangParser.StructDeclRuleContext ctx) {
+        String name = ctx.ID().getText();
+        List<String> fieldNames = new ArrayList<>();
+        List<VarType> fieldTypes = new ArrayList<>();
+
+        for (MyLangParser.FieldDeclContext f : ctx.fieldDecl()) {
+            VarType ft = resolveTypeName(f.typeName());
+            if (ft == VarType.STRUCT) {
+                semanticError(ctx, "zagniezdzone struktury nie sa obslugiwane");
+                return null;
+            }
+            fieldNames.add(f.ID().getText());
+            fieldTypes.add(ft);
+        }
+
+        StructInfo si = new StructInfo(name, fieldNames, fieldTypes, false);
+        structs.put(name, si);
+        LLVMGenerator.declareStructType(name, fieldNames, fieldTypes);
+        return null;
+    }
+
+    @Override
+    public Value visitClassDeclRule(MyLangParser.ClassDeclRuleContext ctx) {
+        String name = ctx.ID().getText();
+        List<String> fieldNames = new ArrayList<>();
+        List<VarType> fieldTypes = new ArrayList<>();
+
+        for (MyLangParser.ClassMemberContext m : ctx.classMember()) {
+            if (m instanceof MyLangParser.ClassMemberFieldContext) {
+                MyLangParser.FieldDeclContext f =
+                        ((MyLangParser.ClassMemberFieldContext) m).fieldDecl();
+                VarType ft = resolveTypeName(f.typeName());
+                fieldNames.add(f.ID().getText());
+                fieldTypes.add(ft);
+            }
+        }
+
+        StructInfo si = new StructInfo(name, fieldNames, fieldTypes, true);
+        structs.put(name, si);
+        LLVMGenerator.declareStructType(name, fieldNames, fieldTypes);
+
+        currentClassName = name;
+        savedVariables = variables;
+        savedLlvmVarName = llvmVarName;
+        savedArrays = arrays;
+        savedMatrices = matrices;
+        savedStructVars = structVars;
+
+        for (MyLangParser.ClassMemberContext m : ctx.classMember()) {
+            if (m instanceof MyLangParser.ClassMemberMethodContext) {
+                MyLangParser.MethodDeclContext md =
+                        ((MyLangParser.ClassMemberMethodContext) m).methodDecl();
+                visitMethodDecl(md, name, si);
+            }
+        }
+
+        currentClassName = null;
+        variables = savedVariables;
+        llvmVarName = savedLlvmVarName;
+        arrays = savedArrays;
+        matrices = savedMatrices;
+        structVars = savedStructVars;
+        return null;
+    }
+
+    private void visitMethodDecl(MyLangParser.MethodDeclContext ctx,
+                                 String className, StructInfo si) {
+        String methodName = ctx.ID().getText();
+        VarType retType = resolveReturnType(ctx.returnTypeName());
+        List<String> paramNames = new ArrayList<>();
+        List<VarType> paramTypes = new ArrayList<>();
+
+        if (ctx.paramList() != null) {
+            for (MyLangParser.ParamContext p : ctx.paramList().param()) {
+                paramNames.add(p.ID().getText());
+                paramTypes.add(resolveTypeName(p.typeName()));
+            }
+        }
+
+        String llvmName = className + "_" + methodName;
+        FuncInfo info = new FuncInfo(llvmName, retType, paramNames, paramTypes);
+        si.methods.put(methodName, info);
+        functions.put(llvmName, info);
+
+        variables = new HashMap<>();
+        llvmVarName = new HashMap<>();
+        arrays = new HashMap<>();
+        matrices = new HashMap<>();
+        structVars = new HashMap<>();
+        structVars.put("self", className);
+        currentFunc = info;
+
+        for (int i = 0; i < paramNames.size(); i++) {
+            String pn = paramNames.get(i);
+            variables.put(pn, paramTypes.get(i));
+            llvmVarName.put(pn, "%" + pn);
+        }
+
+        LLVMGenerator.beginStructMethod(llvmName, className, retType, paramNames, paramTypes);
+        visit(ctx.block());
+        LLVMGenerator.endFunction(retType);
+
+        currentFunc = null;
+    }
+
+    @Override
+    public Value visitBlock(MyLangParser.BlockContext ctx) {
+        visitChildren(ctx);
+        return null;
+    }
+
+    @Override
+    public Value visitIfStat(MyLangParser.IfStatContext ctx) {
+        int id = LLVMGenerator.labelCount++;
+        List<MyLangParser.ExprContext> conds = ctx.expr();
+        List<MyLangParser.BlockContext> blocks = ctx.block();
+        boolean hasElse = blocks.size() > conds.size();
+
+        String endLabel = "if_end_" + id;
+        String nextLabel;
+
+        for (int i = 0; i < conds.size(); i++) {
+            Value cond = visit(conds.get(i));
+            if (cond == null) return null;
+            if (cond.type != VarType.BOOL) {
+                semanticError(ctx, "warunek if musi byc bool");
+                return null;
+            }
+            String thenLabel = "if_then_" + id + "_" + i;
+            if (i + 1 < conds.size()) {
+                nextLabel = "if_elif_" + id + "_" + (i + 1);
+            } else if (hasElse) {
+                nextLabel = "if_else_" + id;
+            } else {
+                nextLabel = endLabel;
+            }
+            LLVMGenerator.condBr(cond.name, thenLabel, nextLabel);
+            LLVMGenerator.emitLabel(thenLabel);
+            visit(blocks.get(i));
+            LLVMGenerator.br(endLabel);
+            if (!nextLabel.equals(endLabel)) {
+                LLVMGenerator.emitLabel(nextLabel);
+            }
+        }
+
+        if (hasElse) {
+            visit(blocks.get(blocks.size() - 1));
+            LLVMGenerator.br(endLabel);
+        }
+
+        LLVMGenerator.emitLabel(endLabel);
+        return null;
+    }
+
+    @Override
+    public Value visitWhileStat(MyLangParser.WhileStatContext ctx) {
+        int id = LLVMGenerator.labelCount++;
+        String condLabel = "while_cond_" + id;
+        String bodyLabel = "while_body_" + id;
+        String endLabel  = "while_end_" + id;
+
+        LLVMGenerator.br(condLabel);
+        LLVMGenerator.emitLabel(condLabel);
+
+        Value cond = visit(ctx.expr());
+        if (cond == null) return null;
+        if (cond.type != VarType.BOOL) {
+            semanticError(ctx, "warunek while musi byc bool");
+            return null;
+        }
+
+        LLVMGenerator.condBr(cond.name, bodyLabel, endLabel);
+        LLVMGenerator.emitLabel(bodyLabel);
+        visit(ctx.block());
+        LLVMGenerator.br(condLabel);
+        LLVMGenerator.emitLabel(endLabel);
+        return null;
+    }
+
+    @Override
+    public Value visitForStat(MyLangParser.ForStatContext ctx) {
+        String loopVar = ctx.ID().getText();
+        int id = LLVMGenerator.labelCount++;
+        String condLabel = "for_cond_" + id;
+        String bodyLabel = "for_body_" + id;
+        String endLabel  = "for_end_" + id;
+
+        if (!variables.containsKey(loopVar)) {
+            variables.put(loopVar, VarType.INT);
+            llvmVarName.put(loopVar, "%" + loopVar);
+            LLVMGenerator.declare(loopVar, VarType.INT);
+        }
+
+        Value startVal = visit(ctx.expr(0));
+        if (startVal == null) return null;
+        Value coercedStart = coerce(startVal, VarType.INT, ctx);
+        if (coercedStart == null) return null;
+        LLVMGenerator.assign(loopVar, coercedStart.name, VarType.INT);
+
+        LLVMGenerator.br(condLabel);
+        LLVMGenerator.emitLabel(condLabel);
+
+        Value endVal = visit(ctx.expr(1));
+        if (endVal == null) return null;
+        Value coercedEnd = coerce(endVal, VarType.INT, ctx);
+        if (coercedEnd == null) return null;
+
+        String loaded = LLVMGenerator.load(loopVar, VarType.INT);
+        String cmp = LLVMGenerator.icmp("slt", loaded, coercedEnd.name);
+
+        LLVMGenerator.condBr(cmp, bodyLabel, endLabel);
+        LLVMGenerator.emitLabel(bodyLabel);
+        visit(ctx.block());
+
+        if (!LLVMGenerator.blockTerminated) {
+            String cur = LLVMGenerator.load(loopVar, VarType.INT);
+            String inc = LLVMGenerator.add(cur, "1", VarType.INT);
+            LLVMGenerator.assign(loopVar, inc, VarType.INT);
+        }
+        LLVMGenerator.br(condLabel);
+        LLVMGenerator.emitLabel(endLabel);
+        return null;
+    }
+
+    @Override
+    public Value visitReturnStat(MyLangParser.ReturnStatContext ctx) {
+        if (ctx.expr() == null) {
+            LLVMGenerator.emitReturn(null, VarType.VOID);
+            return null;
+        }
+        Value val = visit(ctx.expr());
+        if (val == null) return null;
+
+        if (currentFunc != null && !currentFunc.isVoid()) {
+            Value coerced = coerce(val, currentFunc.returnType, ctx);
+            if (coerced == null) return null;
+            LLVMGenerator.emitReturn(coerced.name, currentFunc.returnType);
+        } else {
+            LLVMGenerator.emitReturn(val.name, val.type);
+        }
+        return null;
+    }
+
+    @Override
+    public Value visitFuncCallStat(MyLangParser.FuncCallStatContext ctx) {
+        String name = ctx.ID().getText();
+        FuncInfo fi = functions.get(name);
+        if (fi == null) {
+            semanticError(ctx, "nieznana funkcja '" + name + "'");
+            return null;
+        }
+        List<String> argRegs = new ArrayList<>();
+        List<VarType> argTypes = new ArrayList<>();
+        if (!buildArgs(ctx, ctx.argList(), fi, argRegs, argTypes)) return null;
+        LLVMGenerator.callFunction(name, fi.returnType, argRegs, argTypes);
+        return null;
+    }
+
+    @Override
+    public Value visitFuncCallExpr(MyLangParser.FuncCallExprContext ctx) {
+        String name = ctx.ID().getText();
+        FuncInfo fi = functions.get(name);
+        if (fi == null) {
+            semanticError(ctx, "nieznana funkcja '" + name + "'");
+            return null;
+        }
+        if (fi.isVoid()) {
+            semanticError(ctx, "funkcja void '" + name + "' nie zwraca wartosci");
+            return null;
+        }
+        List<String> argRegs = new ArrayList<>();
+        List<VarType> argTypes = new ArrayList<>();
+        if (!buildArgs(ctx, ctx.argList(), fi, argRegs, argTypes)) return null;
+        String result = LLVMGenerator.callFunction(name, fi.returnType, argRegs, argTypes);
+        return new Value(result, fi.returnType);
+    }
+
+    @Override
+    public Value visitMethodCallStat(MyLangParser.MethodCallStatContext ctx) {
+        String varName = ctx.ID(0).getText();
+        String methodName = ctx.ID(1).getText();
+        String typeName = structVars.get(varName);
+        if (typeName == null) {
+            semanticError(ctx, "'" + varName + "' nie jest instancja klasy");
+            return null;
+        }
+        StructInfo si = structs.get(typeName);
+        if (si == null) {
+            semanticError(ctx, "nieznany typ '" + typeName + "'");
+            return null;
+        }
+        FuncInfo mi = si.methods.get(methodName);
+        if (mi == null) {
+            semanticError(ctx, "nieznana metoda '" + methodName + "' w klasie '" + typeName + "'");
+            return null;
+        }
+        List<String> argRegs = new ArrayList<>();
+        List<VarType> argTypes = new ArrayList<>();
+        if (!buildArgs(ctx, ctx.argList(), mi, argRegs, argTypes)) return null;
+        String selfPtr = "%" + varName;
+        LLVMGenerator.callMethod(mi.name, typeName, mi.returnType, selfPtr, argRegs, argTypes);
+        return null;
+    }
+
+    @Override
+    public Value visitMethodCallExpr(MyLangParser.MethodCallExprContext ctx) {
+        String varName = ctx.ID(0).getText();
+        String methodName = ctx.ID(1).getText();
+        String typeName = structVars.get(varName);
+        if (typeName == null) {
+            semanticError(ctx, "'" + varName + "' nie jest instancja klasy");
+            return null;
+        }
+        StructInfo si = structs.get(typeName);
+        if (si == null) {
+            semanticError(ctx, "nieznany typ '" + typeName + "'");
+            return null;
+        }
+        FuncInfo mi = si.methods.get(methodName);
+        if (mi == null) {
+            semanticError(ctx, "nieznana metoda '" + methodName + "'");
+            return null;
+        }
+        if (mi.isVoid()) {
+            semanticError(ctx, "metoda '" + methodName + "' nie zwraca wartosci");
+            return null;
+        }
+        List<String> argRegs = new ArrayList<>();
+        List<VarType> argTypes = new ArrayList<>();
+        if (!buildArgs(ctx, ctx.argList(), mi, argRegs, argTypes)) return null;
+        String selfPtr = "%" + varName;
+        String result = LLVMGenerator.callMethod(mi.name, typeName, mi.returnType,
+                selfPtr, argRegs, argTypes);
+        return new Value(result, mi.returnType);
+    }
+
+    @Override
+    public Value visitFieldAssign(MyLangParser.FieldAssignContext ctx) {
+        String varName = ctx.ID(0).getText();
+        String fieldName = ctx.ID(1).getText();
+
+        String typeName = structVars.get(varName);
+        if (typeName == null) {
+            semanticError(ctx, "'" + varName + "' nie jest struktura");
+            return null;
+        }
+        StructInfo si = structs.get(typeName);
+        if (si == null) {
+            semanticError(ctx, "nieznany typ '" + typeName + "'");
+            return null;
+        }
+        int idx = si.fieldIndex(fieldName);
+        if (idx < 0) {
+            semanticError(ctx, "nieznane pole '" + fieldName + "' w typie '" + typeName + "'");
+            return null;
+        }
+        VarType ft = si.fieldTypes.get(idx);
+        Value val = visit(ctx.expr());
+        if (val == null) return null;
+        Value coerced = coerce(val, ft, ctx);
+        if (coerced == null) return null;
+
+        String ptr = LLVMGenerator.structFieldPtr(varName, typeName, idx, ft);
+        LLVMGenerator.storeToPtr(ptr, coerced.name, ft);
+        return null;
+    }
+
+    @Override
+    public Value visitFieldRef(MyLangParser.FieldRefContext ctx) {
+        String varName = ctx.ID(0).getText();
+        String fieldName = ctx.ID(1).getText();
+
+        String typeName = structVars.get(varName);
+        if (typeName == null) {
+            semanticError(ctx, "'" + varName + "' nie jest struktura");
+            return null;
+        }
+        StructInfo si = structs.get(typeName);
+        if (si == null) {
+            semanticError(ctx, "nieznany typ '" + typeName + "'");
+            return null;
+        }
+        int idx = si.fieldIndex(fieldName);
+        if (idx < 0) {
+            semanticError(ctx, "nieznane pole '" + fieldName + "'");
+            return null;
+        }
+        VarType ft = si.fieldTypes.get(idx);
+        String ptr = LLVMGenerator.structFieldPtr(varName, typeName, idx, ft);
+        String loaded = LLVMGenerator.loadFromPtr(ptr, ft);
+        return new Value(loaded, ft);
+    }
+
+    @Override
     public Value visitVarDecl(MyLangParser.VarDeclContext ctx) {
         String id = ctx.ID().getText();
-        VarType t = resolveType(ctx.typeName());
+        VarType t = resolveTypeName(ctx.typeName());
+
+        if (t == VarType.STRUCT) {
+            String stn = ctx.typeName().getText();
+            StructInfo si = structs.get(stn);
+            if (si == null) {
+                semanticError(ctx, "nieznany typ '" + stn + "'");
+                return null;
+            }
+            if (isDeclared(id)) {
+                semanticError(ctx, "zmienna '" + id + "' juz zostala zadeklarowana");
+                return null;
+            }
+            structVars.put(id, stn);
+            LLVMGenerator.allocaStruct(id, stn);
+            return null;
+        }
 
         if (isDeclared(id)) {
             semanticError(ctx, "zmienna '" + id + "' juz zostala zadeklarowana");
             return null;
         }
         variables.put(id, t);
+        llvmVarName.put(id, "%" + id);
 
         if (t == VarType.STRING) {
             LLVMGenerator.declareString(id);
@@ -56,8 +534,102 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
     }
 
     @Override
+    public Value visitMatrixDecl(MyLangParser.MatrixDeclContext ctx) {
+        VarType elemType = resolveTypeName(ctx.typeName());
+        int rows = Integer.parseInt(ctx.INT(0).getText());
+        int cols = Integer.parseInt(ctx.INT(1).getText());
+        String id = ctx.ID().getText();
+
+        if (rows <= 0 || cols <= 0) {
+            semanticError(ctx, "rozmiary macierzy musza byc > 0");
+            return null;
+        }
+        if (isDeclared(id)) {
+            semanticError(ctx, "nazwa '" + id + "' juz jest zadeklarowana");
+            return null;
+        }
+
+        matrices.put(id, new MatrixInfo(elemType, rows, cols));
+        LLVMGenerator.declareMatrix(id, elemType, rows, cols);
+        return null;
+    }
+
+    @Override
+    public Value visitMatrixAssign(MyLangParser.MatrixAssignContext ctx) {
+        String id = ctx.ID().getText();
+        MatrixInfo info = matrices.get(id);
+        if (info == null) {
+            semanticError(ctx, "niezadeklarowana macierz '" + id + "'");
+            return null;
+        }
+
+        Value rowVal = visit(ctx.expr(0));
+        Value colVal = visit(ctx.expr(1));
+        if (rowVal == null || colVal == null) return null;
+        if (rowVal.type != VarType.INT || colVal.type != VarType.INT) {
+            semanticError(ctx, "indeksy macierzy musza byc int");
+            return null;
+        }
+
+        Value val = visit(ctx.expr(2));
+        if (val == null) return null;
+        Value coerced = coerce(val, info.elementType, ctx);
+        if (coerced == null) return null;
+
+        String ptr = LLVMGenerator.matrixGEP(id, rowVal.name, colVal.name,
+                info.elementType, info.rows, info.cols);
+        LLVMGenerator.storeToPtr(ptr, coerced.name, info.elementType);
+        return null;
+    }
+
+    @Override
+    public Value visitMatrixRef(MyLangParser.MatrixRefContext ctx) {
+        String id = ctx.ID().getText();
+        MatrixInfo info = matrices.get(id);
+        if (info == null) {
+            semanticError(ctx, "niezadeklarowana macierz '" + id + "'");
+            return null;
+        }
+
+        Value rowVal = visit(ctx.expr(0));
+        Value colVal = visit(ctx.expr(1));
+        if (rowVal == null || colVal == null) return null;
+        if (rowVal.type != VarType.INT || colVal.type != VarType.INT) {
+            semanticError(ctx, "indeksy macierzy musza byc int");
+            return null;
+        }
+
+        String ptr = LLVMGenerator.matrixGEP(id, rowVal.name, colVal.name,
+                info.elementType, info.rows, info.cols);
+        return new Value(LLVMGenerator.loadFromPtr(ptr, info.elementType), info.elementType);
+    }
+
+    @Override
+    public Value visitReadMatrixStat(MyLangParser.ReadMatrixStatContext ctx) {
+        String id = ctx.ID().getText();
+        MatrixInfo info = matrices.get(id);
+        if (info == null) {
+            semanticError(ctx, "niezadeklarowana macierz '" + id + "'");
+            return null;
+        }
+
+        Value rowVal = visit(ctx.expr(0));
+        Value colVal = visit(ctx.expr(1));
+        if (rowVal == null || colVal == null) return null;
+        if (rowVal.type != VarType.INT || colVal.type != VarType.INT) {
+            semanticError(ctx, "indeksy macierzy musza byc int");
+            return null;
+        }
+
+        String ptr = LLVMGenerator.matrixGEP(id, rowVal.name, colVal.name,
+                info.elementType, info.rows, info.cols);
+        LLVMGenerator.scanf_into_ptr(ptr, info.elementType);
+        return null;
+    }
+
+    @Override
     public Value visitArrayDecl(MyLangParser.ArrayDeclContext ctx) {
-        VarType elemType = resolveType(ctx.typeName());
+        VarType elemType = resolveTypeName(ctx.typeName());
         int size = Integer.parseInt(ctx.INT().getText());
         String id = ctx.ID().getText();
 
@@ -77,7 +649,7 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
 
     @Override
     public Value visitRangedArrayDecl(MyLangParser.RangedArrayDeclContext ctx) {
-        VarType elemType = resolveType(ctx.typeName());
+        VarType elemType = resolveTypeName(ctx.typeName());
         int start = Integer.parseInt(ctx.INT(0).getText());
         int end = Integer.parseInt(ctx.INT(1).getText());
         String id = ctx.ID().getText();
@@ -101,6 +673,22 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
     public Value visitAssign(MyLangParser.AssignContext ctx) {
         String id = ctx.ID().getText();
         if (!variables.containsKey(id)) {
+            if (currentClassName != null) {
+                StructInfo si = structs.get(currentClassName);
+                if (si != null) {
+                    int idx = si.fieldIndex(id);
+                    if (idx >= 0) {
+                        VarType ft = si.fieldTypes.get(idx);
+                        Value val = visit(ctx.expr());
+                        if (val == null) return null;
+                        Value coerced = coerce(val, ft, ctx);
+                        if (coerced == null) return null;
+                        String ptr = LLVMGenerator.structFieldPtr("self", currentClassName, idx, ft);
+                        LLVMGenerator.storeToPtr(ptr, coerced.name, ft);
+                        return null;
+                    }
+                }
+            }
             semanticError(ctx, "niezadeklarowana zmienna '" + id + "'");
             return null;
         }
@@ -141,7 +729,8 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
             return null;
         }
 
-        String gep = LLVMGenerator.arrayGEP(id, adjustIndex(idxVal.name, info.startIndex), info.elementType, info.size);
+        String gep = LLVMGenerator.arrayGEP(id, adjustIndex(idxVal.name, info.startIndex),
+                info.elementType, info.size);
 
         Value val = visit(ctx.expr(1));
         if (val == null) return null;
@@ -155,7 +744,10 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
     @Override
     public Value visitPrintIdStat(MyLangParser.PrintIdStatContext ctx) {
         String id = ctx.ID().getText();
-        if (arrays.containsKey(id)) {
+        if (matrices.containsKey(id)) {
+            MatrixInfo info = matrices.get(id);
+            LLVMGenerator.printMatrixAll(id, info.elementType, info.rows, info.cols);
+        } else if (arrays.containsKey(id)) {
             ArrayInfo info = arrays.get(id);
             LLVMGenerator.printArrayAll(id, info.elementType, info.size);
         } else if (variables.containsKey(id)) {
@@ -224,7 +816,8 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
             return null;
         }
 
-        String gep = LLVMGenerator.arrayGEP(id, adjustIndex(idxVal.name, info.startIndex), info.elementType, info.size);
+        String gep = LLVMGenerator.arrayGEP(id, adjustIndex(idxVal.name, info.startIndex),
+                info.elementType, info.size);
         LLVMGenerator.scanf_into_ptr(gep, info.elementType);
         return null;
     }
@@ -259,7 +852,8 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
         LLVMGenerator.br(endLabel);
         LLVMGenerator.emitLabel(endLabel);
 
-        return new Value(LLVMGenerator.phi_i1(right.name, evalEndBlock, "true", trueLabel), VarType.BOOL);
+        return new Value(LLVMGenerator.phi_i1(right.name, evalEndBlock, "true", trueLabel),
+                VarType.BOOL);
     }
 
     @Override
@@ -304,7 +898,8 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
         LLVMGenerator.br(endLabel);
         LLVMGenerator.emitLabel(endLabel);
 
-        return new Value(LLVMGenerator.phi_i1(right.name, evalEndBlock, "false", falseLabel), VarType.BOOL);
+        return new Value(LLVMGenerator.phi_i1(right.name, evalEndBlock, "false", falseLabel),
+                VarType.BOOL);
     }
 
     @Override
@@ -418,7 +1013,7 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
     public Value visitCastOp(MyLangParser.CastOpContext ctx) {
         Value v = visit(ctx.castExpr());
         if (v == null) return null;
-        return cast(v, resolveType(ctx.typeName()), ctx);
+        return cast(v, resolveTypeName(ctx.typeName()), ctx);
     }
 
     @Override
@@ -452,6 +1047,17 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
     public Value visitIdRef(MyLangParser.IdRefContext ctx) {
         String id = ctx.ID().getText();
         if (!variables.containsKey(id)) {
+            if (currentClassName != null) {
+                StructInfo si = structs.get(currentClassName);
+                if (si != null) {
+                    int idx = si.fieldIndex(id);
+                    if (idx >= 0) {
+                        VarType ft = si.fieldTypes.get(idx);
+                        String ptr = LLVMGenerator.structFieldPtr("self", currentClassName, idx, ft);
+                        return new Value(LLVMGenerator.loadFromPtr(ptr, ft), ft);
+                    }
+                }
+            }
             semanticError(ctx, "niezadeklarowana zmienna '" + id + "'");
             return null;
         }
@@ -476,7 +1082,8 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
             return null;
         }
 
-        String gep = LLVMGenerator.arrayGEP(id, adjustIndex(idxVal.name, info.startIndex), info.elementType, info.size);
+        String gep = LLVMGenerator.arrayGEP(id, adjustIndex(idxVal.name, info.startIndex),
+                info.elementType, info.size);
         return new Value(LLVMGenerator.loadFromPtr(gep, info.elementType), info.elementType);
     }
 
@@ -535,7 +1142,7 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
         return visit(ctx.orExpr());
     }
 
-    private VarType resolveType(MyLangParser.TypeNameContext ctx) {
+    private VarType resolveTypeName(MyLangParser.TypeNameContext ctx) {
         switch (ctx.getText()) {
             case "int":
                 return VarType.INT;
@@ -550,8 +1157,37 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
             case "string":
                 return VarType.STRING;
             default:
-                return VarType.UNKNOWN;
+                return VarType.STRUCT;
         }
+    }
+
+    private VarType resolveReturnType(MyLangParser.ReturnTypeNameContext ctx) {
+        if (ctx instanceof MyLangParser.RetTypeVoidContext) return VarType.VOID;
+        return resolveTypeName(((MyLangParser.RetTypeNamedContext) ctx).typeName());
+    }
+
+    private boolean buildArgs(ParserRuleContext ctx,
+                              MyLangParser.ArgListContext argListCtx,
+                              FuncInfo fi,
+                              List<String> argRegs,
+                              List<VarType> argTypes) {
+        List<MyLangParser.ExprContext> exprs = new ArrayList<>();
+        if (argListCtx != null) exprs = argListCtx.expr();
+
+        if (exprs.size() != fi.paramTypes.size()) {
+            semanticError(ctx, "funkcja '" + fi.name + "' oczekuje "
+                    + fi.paramTypes.size() + " argumentow, podano " + exprs.size());
+            return false;
+        }
+        for (int i = 0; i < exprs.size(); i++) {
+            Value v = visit(exprs.get(i));
+            if (v == null) return false;
+            Value coerced = coerce(v, fi.paramTypes.get(i), ctx);
+            if (coerced == null) return false;
+            argRegs.add(coerced.name);
+            argTypes.add(coerced.type);
+        }
+        return true;
     }
 
     private Value coerce(Value v, VarType target, ParserRuleContext ctx) {
@@ -577,25 +1213,35 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
         if (v.type == target) return v;
         if (target == VarType.INT) {
             if (v.type.isFloat()) return new Value(v.type == VarType.FLOAT32
-                    ? LLVMGenerator.floatToInt(v.name) : LLVMGenerator.doubleToInt(v.name), VarType.INT);
-            if (v.type == VarType.BOOL) return new Value(LLVMGenerator.boolToInt(v.name), VarType.INT);
+                    ? LLVMGenerator.floatToInt(v.name) : LLVMGenerator.doubleToInt(v.name),
+                    VarType.INT);
+            if (v.type == VarType.BOOL)
+                return new Value(LLVMGenerator.boolToInt(v.name), VarType.INT);
         }
         if (target == VarType.REAL || target == VarType.FLOAT64) {
-            if (v.type == VarType.INT) return new Value(LLVMGenerator.intToDouble(v.name), target);
-            if (v.type == VarType.FLOAT32) return new Value(LLVMGenerator.floatToDouble(v.name), target);
-            if (v.type == VarType.REAL || v.type == VarType.FLOAT64) return new Value(v.name, target);
-            if (v.type == VarType.BOOL) return new Value(LLVMGenerator.boolToFloat(v.name, target), target);
+            if (v.type == VarType.INT)
+                return new Value(LLVMGenerator.intToDouble(v.name), target);
+            if (v.type == VarType.FLOAT32)
+                return new Value(LLVMGenerator.floatToDouble(v.name), target);
+            if (v.type == VarType.REAL || v.type == VarType.FLOAT64)
+                return new Value(v.name, target);
+            if (v.type == VarType.BOOL)
+                return new Value(LLVMGenerator.boolToFloat(v.name, target), target);
         }
         if (target == VarType.FLOAT32) {
-            if (v.type == VarType.INT) return new Value(LLVMGenerator.intToFloat(v.name), VarType.FLOAT32);
+            if (v.type == VarType.INT)
+                return new Value(LLVMGenerator.intToFloat(v.name), VarType.FLOAT32);
             if (v.type == VarType.REAL || v.type == VarType.FLOAT64)
                 return new Value(LLVMGenerator.doubleToFloat(v.name), VarType.FLOAT32);
             if (v.type == VarType.BOOL)
-                return new Value(LLVMGenerator.boolToFloat(v.name, VarType.FLOAT32), VarType.FLOAT32);
+                return new Value(LLVMGenerator.boolToFloat(v.name, VarType.FLOAT32),
+                        VarType.FLOAT32);
         }
         if (target == VarType.BOOL) {
-            if (v.type == VarType.INT) return new Value(LLVMGenerator.intToBool(v.name), VarType.BOOL);
-            if (v.type.isFloat()) return new Value(LLVMGenerator.floatToBool(v.name, v.type), VarType.BOOL);
+            if (v.type == VarType.INT)
+                return new Value(LLVMGenerator.intToBool(v.name), VarType.BOOL);
+            if (v.type.isFloat())
+                return new Value(LLVMGenerator.floatToBool(v.name, v.type), VarType.BOOL);
         }
         semanticError(ctx, "niedozwolone rzutowanie: " + v.type + " -> " + target);
         return null;
@@ -609,17 +1255,26 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
         if (left.type == right.type) return new Value[]{left, right};
 
         if (left.type == VarType.INT && right.type == VarType.FLOAT32)
-            return new Value[]{new Value(LLVMGenerator.intToFloat(left.name), VarType.FLOAT32), right};
+            return new Value[]{new Value(LLVMGenerator.intToFloat(left.name), VarType.FLOAT32),
+                    right};
         if (left.type == VarType.FLOAT32 && right.type == VarType.INT)
-            return new Value[]{left, new Value(LLVMGenerator.intToFloat(right.name), VarType.FLOAT32)};
-        if (left.type == VarType.INT && (right.type == VarType.REAL || right.type == VarType.FLOAT64))
+            return new Value[]{left,
+                    new Value(LLVMGenerator.intToFloat(right.name), VarType.FLOAT32)};
+        if (left.type == VarType.INT &&
+                (right.type == VarType.REAL || right.type == VarType.FLOAT64))
             return new Value[]{new Value(LLVMGenerator.intToDouble(left.name), right.type), right};
-        if ((left.type == VarType.REAL || left.type == VarType.FLOAT64) && right.type == VarType.INT)
-            return new Value[]{left, new Value(LLVMGenerator.intToDouble(right.name), left.type)};
-        if (left.type == VarType.FLOAT32 && (right.type == VarType.REAL || right.type == VarType.FLOAT64))
-            return new Value[]{new Value(LLVMGenerator.floatToDouble(left.name), right.type), right};
-        if ((left.type == VarType.REAL || left.type == VarType.FLOAT64) && right.type == VarType.FLOAT32)
-            return new Value[]{left, new Value(LLVMGenerator.floatToDouble(right.name), left.type)};
+        if ((left.type == VarType.REAL || left.type == VarType.FLOAT64) &&
+                right.type == VarType.INT)
+            return new Value[]{left,
+                    new Value(LLVMGenerator.intToDouble(right.name), left.type)};
+        if (left.type == VarType.FLOAT32 &&
+                (right.type == VarType.REAL || right.type == VarType.FLOAT64))
+            return new Value[]{new Value(LLVMGenerator.floatToDouble(left.name), right.type),
+                    right};
+        if ((left.type == VarType.REAL || left.type == VarType.FLOAT64) &&
+                right.type == VarType.FLOAT32)
+            return new Value[]{left,
+                    new Value(LLVMGenerator.floatToDouble(right.name), left.type)};
         if ((left.type == VarType.REAL || left.type == VarType.FLOAT64) &&
                 (right.type == VarType.REAL || right.type == VarType.FLOAT64)) {
             VarType common = (left.type == VarType.REAL) ? VarType.REAL : VarType.FLOAT64;
@@ -631,39 +1286,25 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
 
     private String icmpOp(String op) {
         switch (op) {
-            case "==":
-                return "eq";
-            case "!=":
-                return "ne";
-            case "<":
-                return "slt";
-            case ">":
-                return "sgt";
-            case "<=":
-                return "sle";
-            case ">=":
-                return "sge";
-            default:
-                return "eq";
+            case "==": return "eq";
+            case "!=": return "ne";
+            case "<":  return "slt";
+            case ">":  return "sgt";
+            case "<=": return "sle";
+            case ">=": return "sge";
+            default:   return "eq";
         }
     }
 
     private String fcmpOp(String op) {
         switch (op) {
-            case "==":
-                return "oeq";
-            case "!=":
-                return "one";
-            case "<":
-                return "olt";
-            case ">":
-                return "ogt";
-            case "<=":
-                return "ole";
-            case ">=":
-                return "oge";
-            default:
-                return "oeq";
+            case "==": return "oeq";
+            case "!=": return "one";
+            case "<":  return "olt";
+            case ">":  return "ogt";
+            case "<=": return "ole";
+            case ">=": return "oge";
+            default:   return "oeq";
         }
     }
 
@@ -706,7 +1347,8 @@ public class LLVMActions extends MyLangBaseVisitor<Value> {
     }
 
     private boolean isDeclared(String id) {
-        return variables.containsKey(id) || arrays.containsKey(id);
+        return variables.containsKey(id) || arrays.containsKey(id)
+                || matrices.containsKey(id) || structVars.containsKey(id);
     }
 
     private void semanticError(ParserRuleContext ctx, String msg) {

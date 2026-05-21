@@ -17,7 +17,7 @@ gen:
 compile: gen
 	@mkdir -p $(BUILD_DIR)
 	javac -cp "$(ANTLR_JAR):$(GEN_DIR)" -d $(BUILD_DIR) \
-	    $$(find $(GEN_DIR) -name "*.java") \
+	    $$(find $(GEN_DIR) -maxdepth 1 -name "*.java") \
 	    $$(find $(SRC_DIR) -maxdepth 1 -name "*.java")
 
 run: all

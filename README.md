@@ -1,4 +1,6 @@
-# Kompilator MyLang — Etap 1 + 2
+# MyLang Compiler
+
+> Compiler for a small imperative language to LLVM IR, with arrays, matrices, structs and classes.
 
 Kompilator prostego języka MyLang generujący kod LLVM IR.  
 Zbudowany w Javie przy użyciu ANTLR4 jako generatora lexera/parsera.

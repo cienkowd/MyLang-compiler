@@ -5,7 +5,7 @@
 Kompilator prostego języka MyLang generujący kod LLVM IR.  
 Zbudowany w Javie przy użyciu ANTLR4 jako generatora lexera/parsera.
 
-> Szczegółowy opis działania kompilatora: [`KOMPENDIUM.md`](KOMPENDIUM.md)
+> Architektura kompilatora (lexer → parser → analiza semantyczna → generowanie IR): [`ARCHITEKTURA.md`](ARCHITEKTURA.md)
 
 ---
 
@@ -308,46 +308,17 @@ Wewnątrz metod pola klasy są dostępne bezpośrednio (bez `self.`).
 
 ---
 
-## Obsługiwane wymagania
+## Zaimplementowane funkcje
 
-### Etap 1
-
-#### Wymagania minimalne (10 pkt)
-
-- Typy `int` i `real`
+- Typy `int`, `real`, `float32`, `float64`, `bool`, `string` z jawnym rzutowaniem
 - I/O: `read` i `print`
-- Operacje arytmetyczne z poprawną kolejnością działań (`+`, `-`, `*`, `/`, nawiasy)
-- Obsługa błędów leksykalno-składniowych (ANTLR + własny listener)
-- Obsługa błędów semantycznych (niezadeklarowane zmienne, niezgodność typów)
-
-#### Rozszerzenia Etap 1
-
-- **Short-circuit boolean evaluation (5 pkt)** — AND/OR przez warunkowe skoki + phi
-- **Liczby o różnej precyzji: `float32`, `float64` (3 pkt)** — osobne typy LLVM
-- **Typ `string` (3 pkt)** — deklaracja, `print`, `read`
-- **Tablice z zakresami indeksów (3+1 pkt)**
-  - `int[N] arr` — tablica 0-based
-  - `int[a..b] arr` — tablica z dowolnym zakresem indeksów
-  - `arr[i] = expr` — przypisanie elementu (indeks może być wyrażeniem)
-  - `print arr` — wypisanie wszystkich elementów
-  - `read arr[i]` — wczytanie elementu ze stdin
-- **Operatory porównania** — `==`, `!=`, `<`, `>`, `<=`, `>=` zwracające `bool`
-
-### Etap 2
-
-#### Wymagania minimalne Etap 2
-
-- **Instrukcja `if/else if/else`** — wielogałęziowe, zagnieżdżalne
-- **Pętla `while`** — z dowolnym warunkiem boolowskim
-- **Pętla `for`** — od wyrażenia do wyrażenia (zakres `[start, end)`)
-- **Funkcje** — parametry, wartości zwracane, rekurencja, lokalne zmienne
-- **Zakres zmiennych** — lokalne vs globalne; funkcje mają własny zakres
-
-#### Rozszerzenia Etap 2
-
-- **Struktury `struct` (+5 pkt)** — rekordy danych z polami, dostęp przez `.`
-- **Klasy `class` (+2 pkt)** — struktury z metodami, implicitny dostęp do pól
-- **Macierze 2D (+2 pkt)** — `int[R][C] mat`, dwupoziomowy GEP, `print mat`
+- Arytmetyka z poprawną kolejnością działań, operatory porównania zwracające `bool`
+- Short-circuit evaluation dla `AND`/`OR` (warunkowe skoki + `phi`)
+- Tablice 1D, także z dowolnym zakresem indeksów (`int[a..b]`), oraz macierze 2D
+- `if / else if / else`, pętle `while` i `for`
+- Funkcje z parametrami, wartością zwracaną, rekurencją i lokalnym zakresem zmiennych
+- Struktury (`struct`) i klasy (`class`) z metodami
+- Obsługa błędów leksykalnych, składniowych i semantycznych
 
 ---
 

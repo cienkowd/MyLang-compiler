@@ -27,3 +27,9 @@ Thumbs.db
 .idea/
 *.iml
 .vscode/
+
+# Prywatne notatki i pliki narzedzi AI (zostaja lokalnie)
+CLAUDE.md
+KOMPENDIUM.md
+.claude/
+.github/copilot-instructions.md

@@ -2,42 +2,41 @@
 
 > Compiler for a small imperative language to LLVM IR, with arrays, matrices, structs and classes.
 
-Kompilator prostego języka MyLang generujący kod LLVM IR.  
-Zbudowany w Javie przy użyciu ANTLR4 jako generatora lexera/parsera.
+MyLang is a statically typed imperative language. The compiler is written in Java, uses ANTLR4 to generate the lexer and parser, and emits textual LLVM IR that can be run with `lli` or compiled to a native binary with `clang`.
 
-> Architektura kompilatora (lexer → parser → analiza semantyczna → generowanie IR): [`ARCHITEKTURA.md`](ARCHITEKTURA.md)
+Compiler architecture (lexer → parser → semantic analysis → IR generation): [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ---
 
-## Szybki start
+## Quick start
 
-### 1. Pobierz ANTLR4 jar
+### 1. Download the ANTLR4 jar
 
 ```bash
 wget https://www.antlr.org/download/antlr-4.13.1-complete.jar
-# lub pobierz ręcznie z https://www.antlr.org/download.html
+# or download it manually from https://www.antlr.org/download.html
 ```
 
-### 2. Zainstaluj LLVM (opcjonalnie — do uruchamiania wygenerowanego IR)
+### 2. Install LLVM (optional, needed to run the generated IR)
 
 ```bash
 sudo apt install llvm   # Ubuntu/Debian
 brew install llvm       # macOS
 ```
 
-### 3. Zbuduj kompilator
+### 3. Build the compiler
 
 ```bash
 make
 ```
 
-### 4. Uruchom przykładowy program
+### 4. Run an example program
 
 ```bash
 make run FILE=tests/test_showcase.ml
 ```
 
-### 5. Uruchom wszystkie testy
+### 5. Run all tests
 
 ```bash
 make test
@@ -45,24 +44,24 @@ make test
 
 ---
 
-## Składnia języka MyLang
+## Language syntax
 
-### Typy danych
+### Data types
 
-| Słowo kluczowe | Opis                              | Typ LLVM  |
-|----------------|-----------------------------------|-----------|
-| `int`          | Liczba całkowita 32-bit (signed)  | `i32`     |
-| `real`         | Zmiennoprzecinkowa 64-bit         | `double`  |
-| `float32`      | Zmiennoprzecinkowa 32-bit IEEE754 | `float`   |
-| `float64`      | Zmiennoprzecinkowa 64-bit IEEE754 | `double`  |
-| `bool`         | Wartość logiczna (true/false)     | `i1`      |
-| `string`       | Ciąg znaków (max 255 znaków)      | `i8*`     |
+| Keyword   | Description                        | LLVM type |
+|-----------|------------------------------------|-----------|
+| `int`     | 32-bit signed integer              | `i32`     |
+| `real`    | 64-bit floating point              | `double`  |
+| `float32` | 32-bit IEEE 754 floating point     | `float`   |
+| `float64` | 64-bit IEEE 754 floating point     | `double`  |
+| `bool`    | Boolean (true/false)               | `i1`      |
+| `string`  | Character string (max 255 chars)   | `i8*`     |
 
-### Deklaracja zmiennych
+### Variable declarations
 
 ```
-int x               // deklaracja bez inicjalizacji
-int y = 5           // deklaracja z inicjalizacją
+int x               // declaration without initialization
+int y = 5           // declaration with initialization
 real pi = 3.14
 float32 f = 1.5
 float64 d = 2.71828
@@ -70,37 +69,37 @@ bool flag = true
 string s = "hello"
 ```
 
-### Wejście / wyjście
+### Input / output
 
 ```
-read x              // wczytaj wartość ze stdin
-print x             // wypisz wartość + nowa linia
-print x + y * 2     // wypisz wynik wyrażenia
+read x              // read a value from stdin
+print x             // print a value followed by a newline
+print x + y * 2     // print the result of an expression
 ```
 
-### Arytmetyka
+### Arithmetic
 
 ```
-x = 2 + 3 * 4       // kolejność działań: 14
-x = (2 + 3) * 4     // nawiasy: 20
-x = 10 / 3          // dzielenie całkowite: 3
-r = 10.0 / 3.0      // dzielenie zmiennoprzecinkowe: 3.333...
-x = -y              // jednoargumentowy minus
+x = 2 + 3 * 4       // operator precedence: 14
+x = (2 + 3) * 4     // parentheses: 20
+x = 10 / 3          // integer division: 3
+r = 10.0 / 3.0      // floating-point division: 3.333...
+x = -y              // unary minus
 ```
 
-### Operacje logiczne (z short-circuit dla AND i OR)
+### Logical operators (short-circuit AND and OR)
 
 ```
 bool a = true
 bool b = false
 
-bool r1 = a AND b           // false (AND: jeśli lewa=false → prawa pomijana)
-bool r2 = a OR b            // true  (OR:  jeśli lewa=true  → prawa pomijana)
-bool r3 = a XOR b           // true  (XOR: zawsze obie strony obliczane)
+bool r1 = a AND b           // false (AND: if left is false, right is skipped)
+bool r2 = a OR b            // true  (OR:  if left is true, right is skipped)
+bool r3 = a XOR b           // true  (XOR: both sides are always evaluated)
 bool r4 = NOT a             // false
 ```
 
-### Porównania (zwracają bool)
+### Comparisons (return bool)
 
 ```
 bool gt  = x > y
@@ -111,65 +110,65 @@ bool gte = x >= y
 bool lte = x <= y
 ```
 
-### Rzutowanie typów
+### Type casts
 
 ```
 real r  = (real) 5          // int → real
-int  i  = (int) 3.14        // real → int (obcięcie w kierunku zera)
-float32 f = (float32) r     // double → float (zawężenie, możliwa utrata precyzji)
-float64 d = (float64) f     // float → double (poszerzenie, bezstratne)
-bool b  = (bool) x          // int → bool (0=false, inne=true)
+int  i  = (int) 3.14        // real → int (truncation toward zero)
+float32 f = (float32) r     // double → float (narrowing, may lose precision)
+float64 d = (float64) f     // float → double (widening, lossless)
+bool b  = (bool) x          // int → bool (0 = false, anything else = true)
 ```
 
-### Tablice 1D o stałym rozmiarze
+### Fixed-size 1D arrays
 
 ```
-// Tablica 0-based (indeksy 0..N-1)
+// 0-based array (indices 0..N-1)
 int[5] tab
 tab[0] = 10
 tab[4] = 50
 
-// Tablica z zakresem indeksów (indeksy a..b)
+// Array with a custom index range (indices a..b)
 int[1..5] ranged
 ranged[1] = 100
 ranged[5] = 500
 
-// Dynamiczny indeks (zmienna)
+// Dynamic index (variable)
 int i = 2
 tab[i] = tab[i] * 2
 
-// Wypisanie wszystkich elementów
+// Print all elements
 print tab
 
-// Odczyt elementu ze stdin
+// Read an element from stdin
 read tab[0]
 
-// Tablice innych typów
+// Arrays of other types
 real[3] fvals
 fvals[0] = 1.5
 ```
 
-### Tablice 2D (macierze)
+### 2D arrays (matrices)
 
 ```
-// Deklaracja macierzy R×C
+// Declare an R×C matrix
 int[3][4] mat
 
-// Wypełnienie pętlą
+// Fill it with a loop
 for i = 0 to 3 {
     for j = 0 to 4 {
         mat[i][j] = i * 4 + j
     }
 }
 
-// Dostęp do elementu
+// Element access
 int val = mat[1][2]
 
-// Wypisanie całej macierzy (wszystkie elementy wiersz po wierszu)
+// Print the whole matrix (all elements, row by row)
 print mat
 ```
 
-### Instrukcja warunkowa
+### Conditionals
 
 ```
 if (x > 0) {
@@ -181,9 +180,9 @@ if (x > 0) {
 }
 ```
 
-Bloki `else if` i `else` są opcjonalne. Można zagnieżdżać dowolnie głęboko.
+`else if` and `else` blocks are optional and can be nested to any depth.
 
-### Pętla while
+### While loop
 
 ```
 int i = 0
@@ -193,24 +192,24 @@ while (i < 10) {
 }
 ```
 
-### Pętla for
+### For loop
 
 ```
-// Iteracja od start do end-1 (zakres prawostronnie otwarty)
+// Iterates from start to end-1 (half-open range)
 for k = 1 to 11 {
-    print k       // wypisuje 1..10
+    print k       // prints 1..10
 }
 
-// Można używać wyrażeń jako granic
+// Bounds can be expressions
 for idx = 0 to 5 {
     tab[idx] = idx * idx
 }
 ```
 
-### Funkcje
+### Functions
 
 ```
-// Funkcja zwracająca wartość
+// Function returning a value
 fun int max(int x, int y) {
     if (x > y) {
         return x
@@ -218,7 +217,7 @@ fun int max(int x, int y) {
     return y
 }
 
-// Funkcja rekurencyjna
+// Recursive function
 fun int fib(int n) {
     if (n <= 1) {
         return n
@@ -226,24 +225,24 @@ fun int fib(int n) {
     return fib(n - 1) + fib(n - 2)
 }
 
-// Funkcja z typem zmiennoprzecinkowym
-fun real srednia(real x, real y, real z) {
+// Floating-point function
+fun real average(real x, real y, real z) {
     return (x + y + z) / 3.0
 }
 
-// Procedura (bez wartości zwracanej)
+// Procedure (no return value)
 fun void printSep() {
     print 0
 }
 
-// Wywołanie
+// Calls
 print max(7, 12)
 print fib(8)
-print srednia(3.0, 6.0, 9.0)
+print average(3.0, 6.0, 9.0)
 printSep()
 ```
 
-### Struktury
+### Structs
 
 ```
 struct Vec2 {
@@ -258,7 +257,7 @@ real len_sq = v.x * v.x + v.y * v.y
 print len_sq
 ```
 
-### Klasy (struktury z metodami)
+### Classes (structs with methods)
 
 ```
 class Stack {
@@ -298,50 +297,60 @@ print stk.size()   // 3
 print stk.peek()   // 30
 ```
 
-Wewnątrz metod pola klasy są dostępne bezpośrednio (bez `self.`).
+Inside methods, class fields are accessed directly (no `self.`).
 
-### Komentarze
+### Comments
 
 ```
-// komentarz jednolinijkowy
+// single-line comment
 ```
 
 ---
 
-## Zaimplementowane funkcje
+## Implemented features
 
-- Typy `int`, `real`, `float32`, `float64`, `bool`, `string` z jawnym rzutowaniem
-- I/O: `read` i `print`
-- Arytmetyka z poprawną kolejnością działań, operatory porównania zwracające `bool`
-- Short-circuit evaluation dla `AND`/`OR` (warunkowe skoki + `phi`)
-- Tablice 1D, także z dowolnym zakresem indeksów (`int[a..b]`), oraz macierze 2D
-- `if / else if / else`, pętle `while` i `for`
-- Funkcje z parametrami, wartością zwracaną, rekurencją i lokalnym zakresem zmiennych
-- Struktury (`struct`) i klasy (`class`) z metodami
-- Obsługa błędów leksykalnych, składniowych i semantycznych
+- Types `int`, `real`, `float32`, `float64`, `bool`, `string` with explicit casts
+- I/O: `read` and `print`
+- Arithmetic with correct operator precedence, comparison operators returning `bool`
+- Short-circuit evaluation of `AND`/`OR` (conditional branches + `phi`)
+- 1D arrays, including custom index ranges (`int[a..b]`), and 2D matrices
+- `if / else if / else`, `while` and `for` loops
+- Functions with parameters, return values, recursion and local scope
+- Structs (`struct`) and classes (`class`) with methods
+- Lexical, syntax and semantic error reporting
 
 ---
 
-## Polecenia Makefile
+## Makefile targets
 
 ```bash
-make                        # zbuduj kompilator (gen + kompilacja Java)
-make run FILE=tests/test_showcase.ml  # kompiluj i uruchom program
-make test                   # uruchom wszystkie pliki z tests/
-make ir FILE=plik.ml        # tylko wypisz wygenerowany IR (bez uruchamiania)
-make clean                  # usuń pliki budowania
+make                                  # build the compiler (ANTLR generation + Java compilation)
+make run FILE=tests/test_showcase.ml  # compile and run a program
+make test                             # run every file in tests/
+make ir FILE=file.ml                  # print the generated IR only (no execution)
+make clean                            # remove build output
 ```
 
-## Pliki testowe
+## Test programs
 
-| Plik | Co testuje |
-|------|-----------|
-| `tests/test_basic.ml` | Typy podstawowe, arytmetyka, I/O |
-| `tests/test_if.ml` | Instrukcja if/else if/else |
-| `tests/test_while.ml` | Pętla while |
-| `tests/test_for.ml` | Pętla for |
-| `tests/test_functions.ml` | Funkcje, rekurencja, void |
-| `tests/test_struct.ml` | Struktury i dostęp do pól |
-| `tests/test_class.ml` | Klasy i metody |
-| `tests/test_matrix.ml` | Macierze 2D |
-| `tests/test_showcase.ml` | Wszystkie funkcjonalności języka |
+| File | What it covers |
+|------|----------------|
+| `tests/test_basic.ml` | Basic types, arithmetic, I/O |
+| `tests/test_bool.ml` | `bool`, short-circuit AND/OR/XOR |
+| `tests/test_comparisons.ml` | Comparison operators |
+| `tests/test_float_precision.ml` | `float32` vs `float64` precision |
+| `tests/test_string.ml` | `string` type |
+| `tests/test_arrays.ml` | 0-based and ranged arrays |
+| `tests/test_if.ml` | if / else if / else |
+| `tests/test_while.ml` | while loop |
+| `tests/test_for.ml` | for loop |
+| `tests/test_functions.ml` | Functions, recursion, void |
+| `tests/test_struct.ml` | Structs and field access |
+| `tests/test_class.ml` | Classes and methods |
+| `tests/test_matrix.ml` | 2D matrices |
+| `tests/test_errors.ml` | Semantic errors |
+| `tests/test_showcase.ml` | All language features |
+
+---
+
+Built as coursework for the compilers course, Applied Computer Science, Warsaw University of Technology.

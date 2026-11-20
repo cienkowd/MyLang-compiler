@@ -1,0 +1,2 @@
+# MyLang test programs are not OCaml/Standard ML
+*.ml linguist-language=Text
